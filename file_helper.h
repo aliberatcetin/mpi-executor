@@ -9,7 +9,7 @@
 void write_integer_to_file(char *file_name, int *data, int data_size,int *success){
     FILE *file;
 
-    char file_[50];
+    char file_[50] = "";
     strcat(file_, "./data/");
     strcat(file_,file_name);
     strcat(file_,"\0");
@@ -32,8 +32,7 @@ void write_integer_to_file(char *file_name, int *data, int data_size,int *succes
 }
 
 
-void read_file_integer(char *file_name, int **output, int *output_size,int *success)
-{
+void read_file_integer(char *file_name, int **output, int *output_size,int *success){
 
     int *data = (int *)malloc(sizeof(int) * 100);
 
