@@ -92,7 +92,7 @@ void get_task_detail(char *task_id, char **detail){
     CURLcode res;
     struct string s;
     init_string(&s);
-    char host[100] = "http://host.docker.internal:8081/graph/";
+    char host[100] = "http://host.docker.internal:8081/graph/executionDetail/";
     strcat(host,task_id);
     strcat(host,"\0");
     
@@ -129,9 +129,6 @@ void execute_manager(json_t *root, fptr *func,int *success){
     json_t *id_json = json_object_get(root, "id");
     strcpy(id,json_string_value(id_json));
     printf("id: %s \n",id);
-
-    char state[30] = "RUNNING";
-    set_task_state(id, state);
 
     char inputSource[50];
     json_t *inputSource_json = json_object_get(root, "inputSource");
