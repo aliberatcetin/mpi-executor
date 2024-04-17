@@ -10,7 +10,7 @@
 #include <string.h>
 
 #define STR_SIZE 2048 /**< @brief Standard size for strings. **/
-char nprocs[] = "2";
+
 char _keys[][MPI_MAX_INFO_KEY] = {"mpi_dyn", "mpi_primary", "inter_pset", "mpi_included", "dmr://finalize"};
 char *keys[5] = {_keys[0], _keys[1], _keys[2], _keys[3], _keys[4]};
 MPI_Info info = MPI_INFO_NULL;
@@ -92,14 +92,13 @@ int DMR_min, DMR_max, DMR_pref;
         /*printf("Before INIT [%d/%d] %d: %s(%s,%d)\n", DMR_comm_rank, DMR_comm_size, getpid(), __FILE__, __func__, __LINE__);  */\
         if (!dynamic_proc)                                                                                                         \
         {                                                                                                                          \
-                       printf("qqqBefore Bcast [%d/%d] %d: %s(%s,%d)\n", DMR_comm_rank, DMR_comm_size, getpid(), __FILE__, __func__, __LINE__);  \
             DMR_it = 0;                                                                                                            \
             FUNC_INIT;                                                                                                             \
         }                                                                                                                          \
         else                                                                                                                       \
         {                                                                                                                          \
             /*FUNC_INIT;*/                                                                                                             \
-            printf("helloBefore Bcast [%d/%d] %d: %s(%s,%d)\n", DMR_comm_rank, DMR_comm_size, getpid(), __FILE__, __func__, __LINE__);  \
+            /*printf("Before Bcast [%d/%d] %d: %s(%s,%d)\n", DMR_comm_rank, DMR_comm_size, getpid(), __FILE__, __func__, __LINE__); */ \
             MPI_Bcast(&DMR_it, 1, MPI_INT, 0, DMR_INTERCOMM);                                                                      \
             DMR_it++;                                                                                                              \
             EXPAND_RECV;                                                                                                           \
@@ -115,16 +114,20 @@ int DMR_min, DMR_max, DMR_pref;
         {                                                                                                                                                \
             noutput = 0;                                                                                                                                 \
             if (primary_proc && psetop_req == MPI_REQUEST_NULL)                                                                                          \
-            {    \
-                  MPI_Info_create(&info);                                                                                                                                                                 \
-                MPI_Info_set(info, "mpi_num_procs_add", nprocs);                                                                  \                                                                                         
+            {                                                                                                                                            \
+                MPI_Info_create(&info);                                                                                                                  \
+                sprintf(str, "%d", DMR_min);                                                                                                             \
+                MPI_Info_set(info, "mpi_num_procs_min", str);                                                                                            \
+                sprintf(str, "%d", DMR_max);                                                                                                             \
+                MPI_Info_set(info, "mpi_num_procs_max", str);                                                                                            \
+                sprintf(str, "%d", DMR_pref);                                                                                                            \
+                MPI_Info_set(info, "mpi_num_procs_pref", str);                                                                                           \
                 input_psets = (char **)malloc(1 * sizeof(char *));                                                                                       \
                 input_psets[0] = strdup(main_pset);                                                                                                      \
-                op_req = MPI_PSETOP_GROW;                                                                                                             \
-                MPI_Session_dyn_v2a_psetop(DMR_session, &op_req, input_psets, 1, &output_psets, &noutput, info);                         \
+                op_req = MPI_PSETOP_REPLACE;                                                                                                             \
+                MPI_Session_dyn_v2a_psetop_nb(DMR_session, &op_req, input_psets, 1, &output_psets, &noutput, info, &psetop_req);                         \
                 MPI_Info_free(&info);                                                                                                                    \
-            } \
-            printf("qweqew %d %d %s %s\n", op_req, noutput, output_psets[0],output_psets[1]);                                                                                                                                           \
+            }                                                                                                                                            \
             /* Query if there is a resource change */                                                                                                    \
             noutput2 = 0;                                                                                                                                \
             MPI_Session_dyn_v2a_query_psetop(DMR_session, main_pset, main_pset, &op_query, &q_output_psets, &noutput2);                                  \
@@ -135,17 +138,16 @@ int DMR_min, DMR_max, DMR_pref;
                 /* Publish name of inter-pset */                                                                                                         \
                 if (primary_proc)                                                                                                                        \
                 {                                                                                                                                        \
+                    MPI_Request_free(&psetop_req);                                                                                                       \
                     MPI_Info_create(&info);                                                                                                              \
-                    MPI_Info_set(info, "inter_pset", output_psets[1]);                                                                                   \
-                    MPI_Session_set_pset_data(DMR_session, output_psets[0], info);                                                                       \
+                    MPI_Info_set(info, "inter_pset", output_psets[2]);                                                                                   \
+                    MPI_Session_set_pset_data(DMR_session, output_psets[1], info);                                                                       \
                     MPI_Info_free(&info);                                                                                                                \
                     free_string_array(output_psets, noutput);                                                                                            \
                     free_string_array(input_psets, 1);                                                                                                   \
                 }                                                                                                                                        \
-                printf("Before Bcast LE__, __func__, __LINE__\n");            \
                 strcpy(final_pset, q_output_psets[0]);                                                                                                   \
-                MPI_Session_get_pset_data(DMR_session, main_pset, q_output_psets[0], (char **)&keys[2], 1, true, &info);                                 \
-                 printf("Before Bcast LE__, __func__, __LINE__\n");            \
+                MPI_Session_get_pset_data(DMR_session, main_pset, q_output_psets[1], (char **)&keys[2], 1, true, &info);                                 \
                 strcpy(old_main_pset, main_pset);                                                                                                        \
                 MPI_Info_get(info, "inter_pset", MPI_MAX_PSET_NAME_LEN, main_pset, &flag);                                                               \
                 MPI_Info_free(&info);                                                                                                                    \
@@ -167,7 +169,7 @@ int DMR_min, DMR_max, DMR_pref;
                     MPI_Group_free(&wgroup);                                                                                                             \
                     MPI_Comm_rank(DMR_INTERCOMM, &DMR_comm_rank);                                                                                        \
                     MPI_Comm_size(DMR_INTERCOMM, &DMR_comm_size);                                                                                        \
-                    printf("Before Bcast [%d/%d] %d: %s(%s,%d)\n", DMR_comm_rank, DMR_comm_size, getpid(), __FILE__, __func__, __LINE__);            \
+                    /*printf("Before Bcast [%d/%d] %d: %s(%s,%d)\n", DMR_comm_rank, DMR_comm_size, getpid(), __FILE__, __func__, __LINE__);          */  \
                     MPI_Bcast(&DMR_it, 1, MPI_INT, 0, DMR_INTERCOMM);                                                                                    \
                     DMR_COMM_NEW = DMR_INTERCOMM;                                                                                                        \
                 }                                                                                                                                        \

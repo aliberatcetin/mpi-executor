@@ -12,20 +12,65 @@
 #include <dlfcn.h>
 #include "dyn.h"
 
+#include "dyn_psets.h"
+#include "dyn_psets_internal.h"
+
 #define PORT 9000 // The port the server will listen on
 #define WORK_DONE_TAG 1
 #define WORK_TAG 2
 
-   
+int proc_limit = 4;
+int step_size = 2;
+int iterations = 0;
+int num_reconf = 1;
 
+char mode[64] = "expand";
+char step_mode[64] = "DOUBLE";
 struct string {
     char *ptr;
     size_t len;
 };
+reconf_info_t reconf_info = {.cur_iter = 0, .step_size = 2, .is_master=true, .is_dynamic=false};
+
+void update_paramters(){
+    if (0 == strcmp(step_mode, "DOUBLE")){
+        step_size *= 2;
+    }else if(0 == strcmp(step_mode, "HALF")){
+        step_size /= 2;
+    }
+}
 
 void error(const char *msg) {
     perror(msg);
     exit(1);
+}
+
+int check_limit(int size){
+    printf("LIMIT CHECK %d %d %d\n",size, reconf_info.step_size, proc_limit);
+    if(0 == reconf_info.step_size){
+        return 0;
+    }
+
+    if(0 == strcmp("expand", mode)){
+        return size + reconf_info.step_size <= proc_limit;
+    }else if (0 == strcmp("shrink", mode)){
+        return size - reconf_info.step_size >= proc_limit;
+    }
+    return 0;
+}
+
+
+int do_work(int num_procs){
+  
+    //double speedup = (t_p + t_s) / (t_s + t_p / num_procs);
+    //double work_duration = base_duration / speedup;
+   
+    //printf("Sleep for %f\n", work_duration);
+
+    printf("yaptik\n");
+
+    return 0;
+
 }
 
 void init_string(struct string *s) {
@@ -93,6 +138,67 @@ void get_task_detail(char *task_id, char **detail){
     struct string s;
     init_string(&s);
     char host[100] = "http://host.docker.internal:8081/graph/executionDetail/";
+    strcat(host,task_id);
+    strcat(host,"\0");
+    
+    curl = curl_easy_init();
+    if (curl) {
+        curl_easy_setopt(curl, CURLOPT_URL, host);
+        curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writefunc);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s);
+        curl_easy_setopt(curl, CURLOPT_HEADER, 0L);  // Do not include headers in output
+
+        res = curl_easy_perform(curl);
+        if (res != CURLE_OK) {
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        } else {
+            strcpy(*detail,s.ptr);
+        }
+    }
+    curl_easy_cleanup(curl);
+    free(s.ptr);
+}
+
+void put_main_pset(char *task_id, char psetname[]){
+    CURL *curl;
+    CURLcode res;
+    struct string s;
+    init_string(&s);
+    char host[100] = "http://host.docker.internal:8081/key/put/";
+    strcat(host,task_id);
+    strcat(host,"\0");
+
+    char *post_data = psetname;
+    printf("GUNCELLIYORUZ %s\n", post_data);
+    curl = curl_easy_init();
+    if (curl) {
+        curl_easy_setopt(curl, CURLOPT_URL, host);
+        curl_easy_setopt(curl, CURLOPT_HTTPPOST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writefunc);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &s);
+        curl_easy_setopt(curl, CURLOPT_HEADER, 0L);  // Do not include headers in output
+
+        res = curl_easy_perform(curl);
+        if (res != CURLE_OK) {
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        } else {
+            printf("REQUEST BITTI %s\n", s.ptr);
+        }
+
+    }
+    curl_easy_cleanup(curl);
+    free(s.ptr);
+}
+
+void get_main_pset(char *task_id, char **detail){
+    *detail = (char*) malloc(4096);
+    CURL *curl;
+    CURLcode res;
+    struct string s;
+    init_string(&s);
+    char host[100] = "http://host.docker.internal:8081/key/get/";
     strcat(host,task_id);
     strcat(host,"\0");
     
@@ -197,7 +303,7 @@ void execute(char *data){
     
 
     fptr func;
-    void *handle = dlopen("./dyn.so", RTLD_NOW);
+    void *handle = dlopen("./libdyn.so", RTLD_NOW);
 
     if (!handle) {
         fprintf(stderr, "Error: %s\n", dlerror());
@@ -235,27 +341,54 @@ void execute(char *data){
 }
 
 
+
+
+int expand_send(dyn_pset_state_t *dyn_pset_state){
+    printf("expand send\n");
+    MPI_Bcast(dyn_pset_state->user_pointer, 1, MPI_INT, 0, dyn_pset_state->mpicomm);
+}
+
+int expand_recv(dyn_pset_state_t *dyn_pset_state){
+    printf("expand recv\n");
+    MPI_Bcast(dyn_pset_state->user_pointer, sizeof(reconf_info), MPI_BYTE, 0, dyn_pset_state->mpicomm);
+    ++reconf_info.cur_iter;
+}
+
+int get_psetop_info(MPI_Info *info){
+    char str[256];
+    MPI_Info_create(info);                                                                                     
+    sprintf(str, "%d", reconf_info.step_size);
+    printf("set psetop expand\n");
+    MPI_Info_set(*info, "mpi_num_procs_add", str);
+    return 0;
+}
+
+
 /* Example of adding MPI processes */
 int main(int argc, char* argv[]){
-
+    printf("????????????????????MAIN ENTRY????????????????????\n");
     MPI_Group group = MPI_GROUP_NULL;
     MPI_Session session = MPI_SESSION_NULL;
+    MPI_Session session2 = MPI_SESSION_NULL;
     MPI_Comm comm = MPI_COMM_NULL;
     MPI_Info info = MPI_INFO_NULL;
+    dyn_pset_state_t *dyn_pset_state;
 
     char main_pset[MPI_MAX_PSET_NAME_LEN];
     char boolean_string[16], nprocs[] = "1", **input_psets, **output_psets, host[64];  
     int original_rank, new_rank, flag = 0, dynamic_process = 0, noutput, op;
     int flag_ =0;
-    char *task_id, *data;
+    char *task_id, *data, *task_master;
     task_id = (char*) malloc(64);
-
+    task_master = (char*) malloc(64);
+    char *ptype = (char*) malloc(16);
     gethostname(host, 64);
 
-   
 
     char *dict_key = strdup("main_pset");
     char *data_key = strdup("data");
+    char *task_master_key = strdup("task_master");
+    char *ptype_key = strdup("ptype");
 
     /* We start with the mpi://WORLD PSet */
     strcpy(main_pset, "mpi://WORLD");
@@ -269,40 +402,171 @@ int main(int argc, char* argv[]){
 
     /* get value for the 'mpi_dyn' key -> if true, this process was added dynamically */
     MPI_Info_get(info, "mpi_dyn", 6, boolean_string, &flag);
-    printf("%d okuduk? %s\n",flag, boolean_string);   
+    printf("%d? %s\n",flag, boolean_string);
     MPI_Info_free(&info);
 
     
-    /* if mpi://WORLD is a dynamic PSet retrieve the name of the main PSet stored on mpi://WORLD */
     if(dynamic_process = (flag && 0 == strcmp(boolean_string, "True"))){
- 
+
+        MPI_Session_get_pset_data (session, main_pset, main_pset, (char **) &ptype_key, 1, true, &info);
+        MPI_Info_get(info, ptype_key, 20, ptype, &flag);
+        printf("task type info: %d %s \n",flag, ptype);
+        MPI_Info_free(&info);
+        char *papi = (char*)malloc(64);
+
+        printf("PTYPE: %s \n",ptype);
+        if(0 == strcmp(ptype, "master")){
+            
+            MPI_Session_get_pset_data (session, main_pset, main_pset, (char **) &data_key, 1, true, &info);
+            MPI_Info_get(info, "data", 100, task_id, &flag);
+            printf("data: %d %s \n",flag, task_id);
+            MPI_Info_free(&info);
+
+            get_task_detail(task_id, &data);
+            get_main_pset(task_id, &papi);
+            printf("DYNAMIC MASTER Rank %d: Host = '%s', Main PSet = '%s'. I am '%s'! %s \n", original_rank, host, papi, dynamic_process ? "dynamic" : "original",task_id);
+            execute(data);
+        }else{
+            reconf_info.is_dynamic=true;
+            reconf_info.is_master=false;
+            MPI_Session_get_pset_data (session, main_pset, main_pset, (char **) &data_key, 1, true, &info);
+            MPI_Info_get(info, "data", 100, task_id, &flag);
+            MPI_Info_free(&info);
+            get_main_pset(task_id, &papi);
+            printf("@@@@@@@@@@@@@@@@@@@@@@@@@@ MAINPSET: %s\n",papi);
+        }
+
+
+        
         /* Lookup the value for the "grown_main_pset" key in the PSet Dictionary and use it as our main PSet */
-        MPI_Session_get_pset_data (session, main_pset, main_pset, (char **) &dict_key, 1, true, &info);
+        /*MPI_Session_get_pset_data (session, main_pset, main_pset, (char **) &dict_key, 1, true, &info);
         MPI_Info_get(info, "main_pset", MPI_MAX_PSET_NAME_LEN, main_pset, &flag);
+        MPI_Info_free(&info);*/
+
+        //printf("ALDIK IŞTE %s \n", main_pset);
+
+        /*
+        mpi://world -> spawns -> 0 rank prrte://base_name/0(dynamic)-> dyn_psets(forked) -> (prrte://base_name/3, prrte://base_name/4)
+        mpi://world -> spawns -> 0 rank prrte://base_name/1(dynamic) -> dyn_psets(forked) ->  prrte://base_name/5(dynamic)
+        */
+
+/*
+    prrte://base_name/0(dynamic) -> mpirun --np dyn.c --host --parameters
+*/  
+
+
+       
         
 
+
+        /*MPI_Session_get_pset_data (session, main_pset, main_pset, (char **) &task_master_key, 1, true, &info);
+        MPI_Info_get(info, task_master_key, 100, task_master, &flag);
+        printf("master info: %d %s \n",flag, task_master);
         MPI_Info_free(&info);
-
-
-        MPI_Session_get_pset_data (session, main_pset, main_pset, (char **) &data_key, 1, true, &info);
+        printf("before init\n");
         
-        MPI_Info_get(info, "data", 500, task_id, &flag);
-        printf("%d okuduk? %s\n",flag, task_id);   
-        MPI_Info_free(&info);
+        MPI_Group_from_session_pset (session, main_pset, &group);
+        MPI_Comm_create_from_group(group, "mpi.forum.example", MPI_INFO_NULL, MPI_ERRORS_RETURN, &comm);
+        MPI_Comm_rank(comm, &original_rank);
+        MPI_Group_free(&group);*/
+        int terminate, rc, reconfigured;
 
-        get_task_detail(task_id, &data);
-        execute(data);
-        //free(data);
+        MPI_Info info2;
+        if(0 != get_psetop_info(&info2)){
+            printf("ERROR CREATING INFO. TERMINATE!");
+            exit(-1);
+        }
+
+        dyn_pset_state = dyn_pset_init(task_id, session, main_pset, &reconf_info, MPI_INFO_NULL, expand_send, expand_recv, NULL, NULL);
+        //user_func(dyn_pset_state, main_pset, task_id)
+        //finalize();
         
+        MPI_Info_create(&info2);
+
+        printf("AFTER INIT\n");
+		
+        if(0 != dyn_pset_set_info(dyn_pset_state, info2)){
+            printf("ERROR IN DYN_PSET_SET_INFO. TERMINATE!");
+            exit(-1);
+        }
+    
+        //printf("after init %d\n", dyn_pset_state == NULL);
+        /*if( ((dyn_pset_data_t*)(dyn_pset_state->dyn_pset_data))->info == MPI_INFO_NULL){
+        printf("ALDIK NULL OLDU MASTERDA\n");
+        }
+        printf("%s after init\n",((dyn_pset_data_t*)(dyn_pset_state->dyn_pset_data))->main_pset);*/
+        /*if(strcmp(task_master,"True")==0){
+            printf("-----------MASTERIM BEN----------\n");
+            if(0 != dyn_pset_adapt(dyn_pset_state, &terminate, &reconfigured)){
+                printf("ERROR IN DYN_PSET_ADAPT. TERMINATE!");
+                exit(-1);          
+            }
+        }*/
+    
+       
+    MPI_Barrier(dyn_pset_state->mpicomm);
+    /* ======= START MAIN LOOP ======= */
+    for(; reconf_info.cur_iter < iterations; reconf_info.cur_iter++){
+        
+        if (dyn_pset_state->mpirank == 0){
+            printf("######################################\n");
+            printf("Rank %d / %d: Starting iter %d / %d\n", dyn_pset_state->mpirank, dyn_pset_state->mpisize, reconf_info.cur_iter + 1, iterations);
+            printf("######################################\n");
+        }else{
+            printf("DYNAMIC Rank %d / %d: Starting iter %d / %d\n", dyn_pset_state->mpirank, dyn_pset_state->mpisize, reconf_info.cur_iter + 1, iterations);
+        }
+
+        do_work(dyn_pset_state->mpisize);
+
+        MPI_Barrier(dyn_pset_state->mpicomm);
+
+
+        if (check_limit(dyn_pset_state->mpisize)){
+            printf("limit ok %d\n", dyn_pset_state->mpirank);
+            if(0 != dyn_pset_adapt(dyn_pset_state, &terminate, &reconfigured)){
+                printf("ERROR IN DYN_PSET_ADAPT. TERMINATE!");
+                exit(-1);
+            }
+        }else{
+             printf("limit NOT ok %d\n", dyn_pset_state->mpirank);
+        }
+        int num_reconf = 1;
+        if(terminate){
+            printf("TERMINATE \n %d",dyn_pset_state->mpirank);
+            //break;
+        }
+        printf("BEFORE SECOND BARRIER  %d\n",dyn_pset_state->mpirank);
+        MPI_Barrier(dyn_pset_state->mpicomm);
+        printf("AFTER SECOND BARRIER %d\n",dyn_pset_state->mpirank);
+        if(reconfigured){
+            num_reconf++;
+	        update_paramters();
+            MPI_Info_free(&info2);
+            if(0 != get_psetop_info(&info2)){
+                printf("ERROR CREATING INFO. TERMINATE!");
+                exit(-1);
+            }
+            if(0 != dyn_pset_set_info(dyn_pset_state, info2)){
+                printf("ERROR IN DYN_PSET_SET_INFO. TERMINATE!");
+                exit(-1);           
+            }
+            
+        }
+
+
+    }
+    //free(data);
+    }else{
+        MPI_Group_from_session_pset (session, main_pset, &group);
+        MPI_Comm_create_from_group(group, "mpi.forum.example", MPI_INFO_NULL, MPI_ERRORS_RETURN, &comm);
+        MPI_Comm_rank(comm, &original_rank);
+        MPI_Group_free(&group);
+        MPI_Comm_disconnect(&comm);
+        printf("ALL Rank %d: Host = '%s', Main PSet = '%s'. I am '%s'! %s \n", original_rank, host, main_pset, dynamic_process ? "dynamic" : "original",task_id);
     }
     int number;
     /* create a communcator from our main PSet */
-    MPI_Group_from_session_pset (session, main_pset, &group);
-    MPI_Comm_create_from_group(group, "mpi.forum.example", MPI_INFO_NULL, MPI_ERRORS_RETURN, &comm);
-    MPI_Comm_rank(comm, &original_rank);
-    MPI_Group_free(&group);
-
-    printf("ALL Rank %d: Host = '%s', Main PSet = '%s'. I am '%s'! %s \n", original_rank, host, main_pset, dynamic_process ? "dynamic" : "original",task_id);
+    
     //free(task_id);
     /* Original processes will switch to a grown communicator */
     if(!dynamic_process){
@@ -335,6 +599,11 @@ int main(int argc, char* argv[]){
         // Listen for incoming connections
         listen(sockfd, 5);
         clilen = sizeof(cli_addr);
+        char t[50];
+        strcpy(t,"True");
+        char ptype[10];
+        strcpy(ptype,"master");
+        // prrtee://base_anme/0-> master
     /* One process needs to request the set operation and publish the kickof information */
         while(true){
         if(original_rank == 0){
@@ -409,14 +678,27 @@ int main(int argc, char* argv[]){
             /* Publish the name of the new main PSet on the delta Pset */
             
             MPI_Info_create(&info);
-            MPI_Info_set(info, "main_pset", main_pset);
+            MPI_Info_set(info, "main_pset", output_psets[0]);
             MPI_Session_set_pset_data(session, output_psets[0], info);
+            MPI_Info_free(&info);
 
+            MPI_Info_create(&info);
+            MPI_Info_set(info, "data", id);
+            MPI_Session_set_pset_data(session, output_psets[0], info);
+            MPI_Info_free(&info);
+
+            
+            put_main_pset(id, output_psets[0]);
+
+            
+            MPI_Info_create(&info);
+            MPI_Info_set(info, task_master_key, t);
+            MPI_Session_set_pset_data(session, output_psets[0], info);
             MPI_Info_free(&info);
 
 
             MPI_Info_create(&info);
-            MPI_Info_set(info, "data", id);
+            MPI_Info_set(info, ptype_key, ptype);
             MPI_Session_set_pset_data(session, output_psets[0], info);
             MPI_Info_free(&info);
 
@@ -426,15 +708,15 @@ int main(int argc, char* argv[]){
         }
 
         /* All processes can query the information about the pending Set operation */      
-        MPI_Session_dyn_v2a_query_psetop(session, main_pset, main_pset, &op, &output_psets, &noutput);
+        //MPI_Session_dyn_v2a_query_psetop(session, main_pset, main_pset, &op, &output_psets, &noutput);
 
         /* Lookup the name of the new main PSet stored on the delta PSet */
-        MPI_Session_get_pset_data (session, main_pset, output_psets[0], (char **) &dict_key, 1, true, &info);
+        //MPI_Session_get_pset_data (session, main_pset, output_psets[0], (char **) &dict_key, 1, true, &info);
         
-        MPI_Info_get(info, "main_pset", MPI_MAX_PSET_NAME_LEN, main_pset, &flag); 
-        printf("%s o sırada",main_pset);
-        free_string_array(output_psets, noutput);
-        MPI_Info_free(&info);
+        //MPI_Info_get(info, "main_pset", MPI_MAX_PSET_NAME_LEN, main_pset, &flag); 
+        //printf("%s o sırada",main_pset);
+        //free_string_array(output_psets, noutput);
+        //MPI_Info_free(&info);
         
 
         
@@ -449,16 +731,16 @@ int main(int argc, char* argv[]){
         
     
         /* create a cnew ommunicator from the new main PSet*/
-        MPI_Group_from_session_pset (session, main_pset, &group);
-        MPI_Comm_create_from_group(group, "mpi.forum.example", MPI_INFO_NULL, MPI_ERRORS_RETURN, &comm);
+        //MPI_Group_from_session_pset (session, main_pset, &group);
+        //MPI_Comm_create_from_group(group, "mpi.forum.example", MPI_INFO_NULL, MPI_ERRORS_RETURN, &comm);
         
         //MPI_Bcast(&number, 1, MPI_INT, 0, comm);                                                    
         
 
         //MPI_Send(&number, 1, MPI_INT, 1, 0, comm);
-        MPI_Comm_rank(comm, &new_rank);
+        //MPI_Comm_rank(comm, &new_rank);
         //MPI_Comm_disconnect(&comm);
-        MPI_Group_free(&group);
+        //MPI_Group_free(&group);
 
         /* Indicate completion of the Pset operation*/
         if(original_rank == 0){
@@ -472,18 +754,23 @@ int main(int argc, char* argv[]){
         }
     }else{
         printf("im dynamic\n");
+        
+
         ///MPI_Bcast(&number, 1, MPI_INT, 0, comm);       
         //prntf("Process %d got number %d \n", original_rank, number);
     }
-    
-
+   
+    if(0 != dyn_pset_finalize(&dyn_pset_state, NULL)){
+        printf("ERROR IN DYN_PSET_FINALIZE. TERMINATE!");
+        exit(-1);
+    }
     /* Disconnect from the old communicator */
-    MPI_Comm_disconnect(&comm);
-
-    /* Finalize the MPI Session */
+    //MPI_Comm_disconnect(&comm);
     MPI_Session_finalize(&session);
+    /* Finalize the MPI Session */
+  
 
-    printf("im done %d\n", original_rank);
+    printf("im done %d %d\n", original_rank, dynamic_process);
     return 0;
     
 }

@@ -103,21 +103,16 @@ void compute(int i, int bytes, int DMR_comm_rank, int DMR_comm_size, int jobid)
 // USAGE ./sleepOf <jobid>
 int main(int argc, char **argv)
 {   
-    
     int jobid = atoi(argv[1]);
     double *vector;
     DMR_INIT(STEPS, initialize_data(&vector, SIZE), recv_expand(&vector));
-	printf("girdik %d\n",DMR_comm_rank);
+	
     DMR_Set_parameters(8, 64, 32);
     for (;DMR_it < STEPS + 1; DMR_it++){
-        printf("size aga: %d\n",DMR_comm_size);
 		int localSize = SIZE / DMR_comm_size;
-        printf("before computed\n");
-		//compute(DMR_it, localSize, DMR_comm_rank, DMR_comm_size, jobid);
-        printf("computed\n");
-        DMR_RECONFIGURATION(send_expand(&vector), recv_expand(&vector), send_shrink(&vector), recv_shrink(&vector));
-        
-        printf("(sergio)[%d/%d] %d: %s(%s,%d) Iteration %d\n", DMR_comm_rank, DMR_comm_size, getpid(), __FILE__, __func__, __LINE__, DMR_it);
+		compute(DMR_it, localSize, DMR_comm_rank, DMR_comm_size, jobid);
+		DMR_RECONFIGURATION(send_expand(&vector), recv_expand(&vector), send_shrink(&vector), recv_shrink(&vector));
+        //printf("(sergio)[%d/%d] %d: %s(%s,%d) Iteration %d\n", DMR_comm_rank, DMR_comm_size, getpid(), __FILE__, __func__, __LINE__, DMR_it);
 	}
     
     //printf("(sergio)[%d/%d] %d: %s(%s,%d)\n", DMR_comm_rank, DMR_comm_size, getpid(), __FILE__, __func__, __LINE__);

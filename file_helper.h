@@ -24,9 +24,7 @@ void write_integer_to_file(char *file_name, int *data, int data_size,int *succes
         }
     }
 
-    for (int i = 0; i < data_size; i++) {
-        fprintf(file, "%d ", data[i]); 
-    }
+
 
     fclose(file);
 }
