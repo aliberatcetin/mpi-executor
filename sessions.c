@@ -21,7 +21,7 @@
 
 int proc_limit = 4;
 int step_size = 2;
-int iterations = 0;
+int iterations = 5;
 int num_reconf = 1;
 
 char mode[64] = "expand";
@@ -30,7 +30,7 @@ struct string {
     char *ptr;
     size_t len;
 };
-reconf_info_t reconf_info = {.cur_iter = 0, .step_size = 2, .is_master=true, .is_dynamic=false};
+reconf_info_t reconf_info = {.cur_iter = 0, .step_size = 2, .is_master=true, .is_dynamic=false, .try=55};
 
 void update_paramters(){
     if (0 == strcmp(step_mode, "DOUBLE")){
@@ -46,7 +46,7 @@ void error(const char *msg) {
 }
 
 int check_limit(int size){
-    printf("LIMIT CHECK %d %d %d\n",size, reconf_info.step_size, proc_limit);
+    //printf("LIMIT CHECK %d %d %d\n",size, reconf_info.step_size, proc_limit);
     if(0 == reconf_info.step_size){
         return 0;
     }
@@ -67,7 +67,7 @@ int do_work(int num_procs){
    
     //printf("Sleep for %f\n", work_duration);
 
-    printf("yaptik\n");
+   
 
     return 0;
 
@@ -170,7 +170,7 @@ void put_main_pset(char *task_id, char psetname[]){
     strcat(host,"\0");
 
     char *post_data = psetname;
-    printf("GUNCELLIYORUZ %s\n", post_data);
+    printf("UPDATING %s\n", post_data);
     curl = curl_easy_init();
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_URL, host);
@@ -268,7 +268,7 @@ void execute_manager(json_t *root, fptr *func,int *success){
 
     //func(task, input, output, dataType, NULL, NULL, inputSource, runLog, &success);
 
-    (*func)(input, output, dataType, NULL, 0, success);
+    (*func)(root, input, output, dataType, NULL, 0, success);
     
     // json_decref(dataType_json);
     // json_decref(inputSource_json);
@@ -344,13 +344,13 @@ void execute(char *data){
 
 
 int expand_send(dyn_pset_state_t *dyn_pset_state){
-    printf("expand send\n");
-    MPI_Bcast(dyn_pset_state->user_pointer, 1, MPI_INT, 0, dyn_pset_state->mpicomm);
+    printf("expand send %d\n", reconf_info.cur_iter);
+    MPI_Bcast(dyn_pset_state->user_pointer,  sizeof(reconf_info), MPI_BYTE, 0, dyn_pset_state->mpicomm);
 }
 
 int expand_recv(dyn_pset_state_t *dyn_pset_state){
-    printf("expand recv\n");
     MPI_Bcast(dyn_pset_state->user_pointer, sizeof(reconf_info), MPI_BYTE, 0, dyn_pset_state->mpicomm);
+    printf("%d receive \n",((reconf_info_t*)dyn_pset_state->user_pointer)->try);
     ++reconf_info.cur_iter;
 }
 
@@ -358,7 +358,6 @@ int get_psetop_info(MPI_Info *info){
     char str[256];
     MPI_Info_create(info);                                                                                     
     sprintf(str, "%d", reconf_info.step_size);
-    printf("set psetop expand\n");
     MPI_Info_set(*info, "mpi_num_procs_add", str);
     return 0;
 }
@@ -402,7 +401,7 @@ int main(int argc, char* argv[]){
 
     /* get value for the 'mpi_dyn' key -> if true, this process was added dynamically */
     MPI_Info_get(info, "mpi_dyn", 6, boolean_string, &flag);
-    printf("%d? %s\n",flag, boolean_string);
+    //printf("%d? %s\n",flag, boolean_string);
     MPI_Info_free(&info);
 
     
@@ -433,7 +432,7 @@ int main(int argc, char* argv[]){
             MPI_Info_get(info, "data", 100, task_id, &flag);
             MPI_Info_free(&info);
             get_main_pset(task_id, &papi);
-            printf("@@@@@@@@@@@@@@@@@@@@@@@@@@ MAINPSET: %s\n",papi);
+            //printf("@@@@@@@@@@@@@@@@@@@@@@@@@@ MAINPSET: %s\n",papi);
         }
 
 
@@ -483,7 +482,7 @@ int main(int argc, char* argv[]){
         
         MPI_Info_create(&info2);
 
-        printf("AFTER INIT\n");
+        //printf("AFTER INIT\n");
 		
         if(0 != dyn_pset_set_info(dyn_pset_state, info2)){
             printf("ERROR IN DYN_PSET_SET_INFO. TERMINATE!");
@@ -506,20 +505,19 @@ int main(int argc, char* argv[]){
        
     MPI_Barrier(dyn_pset_state->mpicomm);
     /* ======= START MAIN LOOP ======= */
-    for(; reconf_info.cur_iter < iterations; reconf_info.cur_iter++){
+    for(; reconf_info.cur_iter < 0; reconf_info.cur_iter++){
         
         if (dyn_pset_state->mpirank == 0){
-            printf("######################################\n");
-            printf("Rank %d / %d: Starting iter %d / %d\n", dyn_pset_state->mpirank, dyn_pset_state->mpisize, reconf_info.cur_iter + 1, iterations);
-            printf("######################################\n");
+            reconf_info.try = 67;
+            printf("Rank %d / %d: Starting iter %d / %d\n", dyn_pset_state->mpirank, dyn_pset_state->mpisize, reconf_info.cur_iter+1, iterations);
         }else{
-            printf("DYNAMIC Rank %d / %d: Starting iter %d / %d\n", dyn_pset_state->mpirank, dyn_pset_state->mpisize, reconf_info.cur_iter + 1, iterations);
+            printf("DYNAMIC Rank %d / %d: Starting iter %d / %d\n", dyn_pset_state->mpirank, dyn_pset_state->mpisize, reconf_info.cur_iter+1, iterations);
         }
 
         do_work(dyn_pset_state->mpisize);
-
+        //printf("FIRST BARRIER BEFORE FIRST BARRIER  %d\n",dyn_pset_state->mpirank);
         MPI_Barrier(dyn_pset_state->mpicomm);
-
+        //printf("FIRST BARRIER AFTER FIRST BARRIER  %d\n",dyn_pset_state->mpirank);
 
         if (check_limit(dyn_pset_state->mpisize)){
             printf("limit ok %d\n", dyn_pset_state->mpirank);
@@ -528,16 +526,16 @@ int main(int argc, char* argv[]){
                 exit(-1);
             }
         }else{
-             printf("limit NOT ok %d\n", dyn_pset_state->mpirank);
+             //printf("limit NOT ok %d\n", dyn_pset_state->mpirank);
         }
         int num_reconf = 1;
         if(terminate){
-            printf("TERMINATE \n %d",dyn_pset_state->mpirank);
+            printf("TERMINATE %d\n",dyn_pset_state->mpirank);
             //break;
         }
-        printf("BEFORE SECOND BARRIER  %d\n",dyn_pset_state->mpirank);
+        //printf("BEFORE SECOND BARRIER  %d\n",dyn_pset_state->mpirank);
         MPI_Barrier(dyn_pset_state->mpicomm);
-        printf("AFTER SECOND BARRIER %d\n",dyn_pset_state->mpirank);
+        //printf("AFTER SECOND BARRIER %d\n",dyn_pset_state->mpirank);
         if(reconfigured){
             num_reconf++;
 	        update_paramters();
@@ -555,6 +553,7 @@ int main(int argc, char* argv[]){
 
 
     }
+    
     //free(data);
     }else{
         MPI_Group_from_session_pset (session, main_pset, &group);
@@ -567,7 +566,7 @@ int main(int argc, char* argv[]){
     int number;
     /* create a communcator from our main PSet */
     
-    //free(task_id);
+    free(task_id);
     /* Original processes will switch to a grown communicator */
     if(!dynamic_process){
         int sockfd, newsockfd;
@@ -759,7 +758,7 @@ int main(int argc, char* argv[]){
         ///MPI_Bcast(&number, 1, MPI_INT, 0, comm);       
         //prntf("Process %d got number %d \n", original_rank, number);
     }
-   
+     printf("im done %d %d master: %d dynamic: %d\n", original_rank, dynamic_process, dyn_pset_state->is_master, dyn_pset_state->is_dynamic);
     if(0 != dyn_pset_finalize(&dyn_pset_state, NULL)){
         printf("ERROR IN DYN_PSET_FINALIZE. TERMINATE!");
         exit(-1);
@@ -770,7 +769,7 @@ int main(int argc, char* argv[]){
     /* Finalize the MPI Session */
   
 
-    printf("im done %d %d\n", original_rank, dynamic_process);
+   
     return 0;
     
 }

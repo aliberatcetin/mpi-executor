@@ -21,6 +21,7 @@ typedef struct
     bool is_dynamic;
     int cur_iter;
     int step_size;
+    int try;
 }reconf_info_t;
 
 typedef int (*dyn_psets_expand_send_func_t) (dyn_pset_state_t * state);

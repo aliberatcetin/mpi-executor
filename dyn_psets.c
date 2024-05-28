@@ -33,17 +33,17 @@ dyn_pset_data_t * dyn_pset_data_new(MPI_Session session, char *pset,reconf_info_
 
     /* Get the info from our mpi://WORLD pset */
     strcpy(data->main_pset, pset);
-    printf("-----mainpset---- %s\n",pset);
+    //printf("-----mainpset---- %s\n",pset);
     MPI_Session_get_pset_info (data->session, data->main_pset, &info);
 
     MPI_Info_get(info, "mpi_primary", 6, boolean_string, &flag);
     MPI_Info_get(info, "task_master", 10, task_master, &flag);
     primary = 0;
     if(0 != strcmp(boolean_string, "True")){
-        printf("-----------PRIMARY----------------\n");
+        //printf("-----------PRIMARY----------------\n");
         primary = 1;
     }else{
-        printf("-----------NOT PRIMARY----------------\n");
+        //printf("-----------NOT PRIMARY----------------\n");
     }
     /* get value for the 'mpi_dyn' key -> if true, this process was added dynamically */
     MPI_Info_get(info, "mpi_dyn", 6, boolean_string, &flag);
@@ -51,7 +51,7 @@ dyn_pset_data_t * dyn_pset_data_new(MPI_Session session, char *pset,reconf_info_
     /* if mpi://WORLD is a dynamic PSet retrieve the name of the main PSet stored on mpi://WORLD */
     if(!data->is_master && flag && 0 == strcmp(boolean_string, "True")){
         MPI_Info_free(&info);
-        printf("-----------NOT MASTER----------------\n");
+        //printf("-----------NOT MASTER----------------\n");
         data->is_dynamic = true;
         data->setop_pending = true;
         MPI_Session_get_pset_data (data->session, data->main_pset, data->main_pset, &key, 1, true, &info);
@@ -77,7 +77,7 @@ dyn_pset_data_t * dyn_pset_data_new(MPI_Session session, char *pset,reconf_info_
         }
 
     }else{
-        printf("-----------MASTER----------------\n");
+        //printf("-----------MASTER----------------\n");
         data->is_dynamic = false;
         strcpy(data->main_pset, pset);
     }
@@ -248,7 +248,7 @@ void handle_setop(dyn_pset_state_t * state, int * terminate, int *reconfigured){
     MPI_Bcast(data->delta_add, MPI_MAX_PSET_NAME_LEN, MPI_CHAR, 0, state->mpicomm);
     MPI_Bcast(data->delta_sub, MPI_MAX_PSET_NAME_LEN, MPI_CHAR, 0, state->mpicomm);
     MPI_Bcast(data->main_pset, MPI_MAX_PSET_NAME_LEN, MPI_CHAR, 0, state->mpicomm);
-    printf("HANDLE BCAST exit \n");
+    printf("HANDLE BCAST exit %s\n",data->delta_sub);
     /* Check if this process is included in the new PSet */                                        
     MPI_Session_get_pset_info(data->session, data->main_pset, &info);                                                                            
     MPI_Info_get(info, "mpi_included", 6, boolean_string, &flag);                                                                      
@@ -261,6 +261,7 @@ void handle_setop(dyn_pset_state_t * state, int * terminate, int *reconfigured){
             if(NULL != data->shr_send){
                 data->shr_send(state);
             }
+            printf("GIRDIM 1 YAPCAM\n");
             *terminate = 1;
             state->mpirank = -1;
             data->rank = -1;
@@ -328,7 +329,7 @@ dyn_pset_state_t * dyn_pset_init(char *task_id, MPI_Session session, const char 
         MPI_Error_string(error_class, error_string, &length_of_error_string);
         printf("Error creating group from session pset: %s\n", error_string);
     } else {
-        printf("SUCCESSS GROUP %s\n", dyn_pset_data->main_pset);
+        //printf("SUCCESSS GROUP %s\n", dyn_pset_data->main_pset);
     }
 
 
@@ -346,10 +347,10 @@ dyn_pset_state_t * dyn_pset_init(char *task_id, MPI_Session session, const char 
                 MPI_Error_string(error_class, error_string, &length_of_error_string);
                 printf("Error creating communicator from group: %s\n", error_string);
             }else{
-                 printf("SUCCESSS COMM %s\n", dyn_pset_data->main_pset);
+                 //printf("SUCCESSS COMM %s\n", dyn_pset_data->main_pset);
             }
         } else {
-            printf("NOT NULL COMM %s\n", dyn_pset_data->main_pset);
+            //printf("NOT NULL COMM %s\n", dyn_pset_data->main_pset);
         }
     }
    
@@ -364,7 +365,6 @@ dyn_pset_state_t * dyn_pset_init(char *task_id, MPI_Session session, const char 
     MPI_Group_free(&group);
     /* Store our rank */
     MPI_Comm_rank(dyn_pset_state->mpicomm, &dyn_pset_data->rank);
-    printf("%s MY rank %d\n", dyn_pset_data->main_pset, dyn_pset_data->rank);
 
     dyn_pset_state->mpirank = dyn_pset_data->rank;
 
@@ -414,18 +414,18 @@ int dyn_pset_adapt(dyn_pset_state_t * state, int *terminate, int *reconfigured){
     *reconfigured = 0;
     
     if(!dyn_pset_data->setop_pending){
-        printf("SENDING SETOP1\n");          
+        //printf("SENDING SETOP1\n");          
         if(dyn_pset_data->info != MPI_INFO_NULL){     
-              printf("SENDING SETOP2\n");                                                                                                                                     
+              //printf("SENDING SETOP2\n");                                                                                                                                     
             if (dyn_pset_data->rank == 0)                                                                                    
             {
-                printf("SENDING SETOP3\n");                                                                                                                       
+                //printf("SENDING SETOP3\n");                                                                                                                       
                 send_setop(state);                                                                                                         
             }
             dyn_pset_data->setop_pending = true;
         }
     }
-    printf("SETOP ÇIKIŞ\n");
+    //printf("SETOP ÇIKIŞ\n");
 
     if(dyn_pset_data->setop_pending){
         /* Rank 0 requested the setop, so it does the check and Bcasts the result */
@@ -433,9 +433,9 @@ int dyn_pset_adapt(dyn_pset_state_t * state, int *terminate, int *reconfigured){
             check_setop(state, 1, &flag);
         }
         
-        printf("BCAST ENTER %d\n",flag);
+        //printf("BCAST ENTER %d\n",flag);
         MPI_Bcast(&flag, 1, MPI_INT, 0, state->mpicomm);
-        printf("BCAST EXIT %d\n",flag);
+        //printf("BCAST EXIT %d\n",flag);
         /* Setop still pending, so bail out here */
         if(!flag){
             return 0;
