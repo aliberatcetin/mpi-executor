@@ -23,7 +23,8 @@ int proc_limit = 4;
 int step_size = 2;
 int iterations = 5;
 int num_reconf = 1;
-
+int rm = 0;
+int taskMaster = 1;
 char mode[64] = "expand";
 char step_mode[64] = "DOUBLE";
 struct string {
@@ -293,8 +294,6 @@ void execute(char *data){
     json_t *id_json = json_object_get(root, "id");
     strcpy(id,json_string_value(id_json));
     printf("id: %s \n",id);
-
-
     char task[50];
     json_t *task_json = json_object_get(root, "task");
     strcpy(task,json_string_value(task_json));
@@ -356,9 +355,29 @@ int expand_recv(dyn_pset_state_t *dyn_pset_state){
 
 int get_psetop_info(MPI_Info *info){
     char str[256];
-    MPI_Info_create(info);                                                                                     
+    MPI_Info_create(info);                                                                                                
     sprintf(str, "%d", reconf_info.step_size);
-    MPI_Info_set(*info, "mpi_num_procs_add", str);
+    if(rm){
+        if(taskMaster){
+            printf("TASK MASTER\n");
+            char output_space_generator[200];
+            sprintf(output_space_generator, "partial(output_space_generator_replace,num_delta_add=%d,num_max=%d,mapping = '1:node',model=ConstantPsetModel,model_params={'speedup':%d})", reconf_info.step_size,proc_limit, num_reconf + 1);
+            MPI_Info_set(*info, "model", "DefaultReplaceModel()");
+            MPI_Info_set(*info, "output_space_generator", output_space_generator);      
+        }else{
+            printf("GRAPH MASTER\n");
+            char output_space_generator[200];
+            sprintf(output_space_generator, "partial(output_space_generator_add,num_delta=1,num_max=32,mapping = '1:node',model=AmdahlPsetModel,model_params={'t_s': 1, 't_p' : 300})");
+            MPI_Info_set(*info, "model", "DefaultReplaceModel()");
+            MPI_Info_set(*info, "output_space_generator_launch", output_space_generator);      
+        }
+    }else{
+         if(0 == strcmp(mode, "expand")){
+            MPI_Info_set(*info, "mpi_num_procs_add", str);
+        }else if(0 == strcmp(mode, "shrink")){
+            MPI_Info_set(*info, "mpi_num_procs_sub", str);
+        }
+    }
     return 0;
 }
 
@@ -372,7 +391,12 @@ int main(int argc, char* argv[]){
     MPI_Comm comm = MPI_COMM_NULL;
     MPI_Info info = MPI_INFO_NULL;
     dyn_pset_state_t *dyn_pset_state;
-
+    if (argc != 2) {
+        printf("Usage: %s <integer>\n", argv[0]);
+        rm = 1;
+    }else{
+         rm = atoi(argv[1]);
+    }
     char main_pset[MPI_MAX_PSET_NAME_LEN];
     char boolean_string[16], nprocs[] = "1", **input_psets, **output_psets, host[64];  
     int original_rank, new_rank, flag = 0, dynamic_process = 0, noutput, op;
@@ -505,7 +529,7 @@ int main(int argc, char* argv[]){
        
     MPI_Barrier(dyn_pset_state->mpicomm);
     /* ======= START MAIN LOOP ======= */
-    for(; reconf_info.cur_iter < 0; reconf_info.cur_iter++){
+    for(; reconf_info.cur_iter < iterations; reconf_info.cur_iter++){
         
         if (dyn_pset_state->mpirank == 0){
             reconf_info.try = 67;
@@ -554,6 +578,7 @@ int main(int argc, char* argv[]){
 
     }
     
+    printf("END \n");
     //free(data);
     }else{
         MPI_Group_from_session_pset (session, main_pset, &group);
@@ -569,6 +594,7 @@ int main(int argc, char* argv[]){
     free(task_id);
     /* Original processes will switch to a grown communicator */
     if(!dynamic_process){
+        taskMaster = 0;
         int sockfd, newsockfd;
         socklen_t clilen;
         char *buffer;
@@ -656,8 +682,19 @@ int main(int argc, char* argv[]){
             op = MPI_PSETOP_ADD;
             
             /* We add nprocs = 2 processes*/
+            
             MPI_Info_create(&info);
-            MPI_Info_set(info, "mpi_num_procs_add", nprocs);
+            if(rm){
+                printf("GRAPH MASTER\n");
+                char output_space_generator[200];
+                sprintf(output_space_generator, "partial(output_space_generator_launch,num_delta=1,num_max=32,mapping = '1:node',model=AmdahlPsetModel,model_params={'t_s': 1, 't_p' : 300})");
+                MPI_Info_set(info, "model", "DefaultAddModel()");
+                MPI_Info_set(info, "output_space_generator", output_space_generator);      
+            }else{
+                MPI_Info_set(info, "mpi_num_procs_add", nprocs);
+            }
+            
+            
     
             /* The main PSet is the input PSet of the operation */
             input_psets = (char **) malloc(1 * sizeof(char*));

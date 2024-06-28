@@ -1,7 +1,7 @@
 CXX = gcc
 APP=$(shell pwd)
 CXX_FLAGS = -Wall -Wextra -O3 -g -DOMPI_SKIP_MPICXX -lpthread -lcurl -ljansson
-DMRFLAGS = -I$(APP) -L$(APP) -ldmr -ldyn -lset
+DMRFLAGS = -I$(APP) -L$(APP) -ldyn -lset
 FLAGS  = -O3 -Wall -g
 DYN_PSETS := /opt/hpc/install/dyn_psets
 
@@ -31,8 +31,8 @@ set: dyn_psets.c
 	mpicc set.o -shared -o libset.so
 
 dyn: dyn.c
-	mpic++ $(FLAGS) $(MPIFLAGS) -c -fPIC dyn.c -o dyn.o
-	mpic++ dyn.o -shared -o libdyn.so
+	mpicc $(FLAGS) $(MPIFLAGS) -c -fPIC dyn.c -o dyn.o
+	mpicc dyn.o -shared -o libdyn.so
 
 sleep: sleep.c
 	mpic++ $(MPIFLAGS) $(FLAGS) $(DMRFLAGS)  $(CXX_FLAGS)  sleep.c -o tt

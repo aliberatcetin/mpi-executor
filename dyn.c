@@ -132,6 +132,20 @@ void map(json_t *root, char *input_file, char *output_file, char *data_type, voi
 
 }
 
+void sortFile(json_t *root, char *input_file, char *output_file, char *data_type, void *data, int data_size, int *success){
+    int output_size;
+    int *output;
+    char input_file2[100] = "";
+    strcat(input_file2,output_file);
+    //strcat(input_file2,".txt");
+    strcat(input_file2,"\0");
+    read_file_integer(input_file2,&output, &output_size, success);
+
+    sort_integer_array(output, output_size);
+    sleep(1);
+    write_integer_to_file(output_file, output, output_size, success);
+
+}
 
 void sort(json_t *root, char *input_file, char *output_file, char *data_type, void *data, int data_size, int *success){
     int output_size;
