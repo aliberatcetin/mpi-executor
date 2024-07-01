@@ -1,0 +1,1 @@
+source /opt/hpc/build/dyn_procs_setup/env_vars.sh

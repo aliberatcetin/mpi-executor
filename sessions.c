@@ -19,7 +19,7 @@
 #define WORK_DONE_TAG 1
 #define WORK_TAG 2
 
-int proc_limit = 4;
+int proc_limit = 16;
 int step_size = 2;
 int iterations = 5;
 int num_reconf = 1;
@@ -360,6 +360,8 @@ int get_psetop_info(MPI_Info *info){
     if(rm){
         if(taskMaster){
             printf("TASK MASTER\n");
+
+
             char output_space_generator[200];
             sprintf(output_space_generator, "partial(output_space_generator_replace,num_delta_add=%d,num_max=%d,mapping = '1:node',model=ConstantPsetModel,model_params={'speedup':%d})", reconf_info.step_size,proc_limit, num_reconf + 1);
             MPI_Info_set(*info, "model", "DefaultReplaceModel()");
@@ -504,7 +506,7 @@ int main(int argc, char* argv[]){
         //user_func(dyn_pset_state, main_pset, task_id)
         //finalize();
         
-        MPI_Info_create(&info2);
+    
 
         //printf("AFTER INIT\n");
 		
