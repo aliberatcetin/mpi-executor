@@ -19,7 +19,7 @@
 #define WORK_DONE_TAG 1
 #define WORK_TAG 2
 
-int proc_limit = 16;
+int proc_limit = 8;
 int step_size = 2;
 int iterations = 5;
 int num_reconf = 1;
@@ -27,6 +27,9 @@ int rm = 0;
 int taskMaster = 1;
 char mode[64] = "expand";
 char step_mode[64] = "DOUBLE";
+double t_s = 10;
+double t_p = 10;
+double base_duration = 10.0;
 struct string {
     char *ptr;
     size_t len;
@@ -39,6 +42,20 @@ void update_paramters(){
     }else if(0 == strcmp(step_mode, "HALF")){
         step_size /= 2;
     }
+}
+
+int do_work(int num_procs){
+    return 1;
+    struct timespec req, rem;
+    //double speedup = (t_p + t_s) / (t_s + t_p / num_procs);
+    //double work_duration = base_duration / speedup;
+    double work_duration = t_s + t_p/num_procs;
+    req.tv_sec = (time_t) work_duration; 
+    req.tv_nsec = (long)((work_duration - req.tv_sec) * 1e9);
+    while (nanosleep(&req, &rem) == -1) {
+        req = rem;
+    }
+    return 0;
 }
 
 void error(const char *msg) {
@@ -61,18 +78,6 @@ int check_limit(int size){
 }
 
 
-int do_work(int num_procs){
-  
-    //double speedup = (t_p + t_s) / (t_s + t_p / num_procs);
-    //double work_duration = base_duration / speedup;
-   
-    //printf("Sleep for %f\n", work_duration);
-
-   
-
-    return 0;
-
-}
 
 void init_string(struct string *s) {
     s->len = 0;
@@ -279,8 +284,6 @@ void execute_manager(json_t *root, fptr *func,int *success){
 }
 
 void execute(char *data){
-
-
     json_t *root;
     json_error_t error;
     printf("hello %s--------------\n---------------\n", data);
@@ -323,20 +326,20 @@ void execute(char *data){
     
     execute_manager(root, &func, &success);
     
-    printf("pipeline done\n");
+    printf("pipeline done %d\n",success);
     if(success==0){
         strcpy(state,"ERROR");
         set_task_state(id, state);
     }else{
-        strcpy(state,"TERMINATED");
-        set_task_state(id, state);
+        //strcpy(state,"TERMINATED");
+        //set_task_state(id, state);
     }
 
     
     json_decref(id_json);
     json_decref(task_json);
     json_decref(root);
-
+    printf("DEALLOCATE JSON OBJECTS %d\n",getpid());
 }
 
 
@@ -360,8 +363,6 @@ int get_psetop_info(MPI_Info *info){
     if(rm){
         if(taskMaster){
             printf("TASK MASTER\n");
-
-
             char output_space_generator[200];
             sprintf(output_space_generator, "partial(output_space_generator_replace,num_delta_add=%d,num_max=%d,mapping = '1:node',model=ConstantPsetModel,model_params={'speedup':%d})", reconf_info.step_size,proc_limit, num_reconf + 1);
             MPI_Info_set(*info, "model", "DefaultReplaceModel()");
@@ -531,7 +532,7 @@ int main(int argc, char* argv[]){
        
     MPI_Barrier(dyn_pset_state->mpicomm);
     /* ======= START MAIN LOOP ======= */
-    for(; reconf_info.cur_iter < iterations; reconf_info.cur_iter++){
+    for(; reconf_info.cur_iter < iterations & false; reconf_info.cur_iter++){
         
         if (dyn_pset_state->mpirank == 0){
             reconf_info.try = 67;
@@ -580,6 +581,7 @@ int main(int argc, char* argv[]){
 
     }
     
+    
     printf("END \n");
     //free(data);
     }else{
@@ -593,7 +595,7 @@ int main(int argc, char* argv[]){
     int number;
     /* create a communcator from our main PSet */
     
-    free(task_id);
+    
     /* Original processes will switch to a grown communicator */
     if(!dynamic_process){
         taskMaster = 0;
@@ -659,6 +661,19 @@ int main(int argc, char* argv[]){
 
             root = json_loads(buffer, 0, &e);
             char id[50];
+            char theMessage[50];
+
+            
+            
+            json_t *messageJson = json_object_get(root, "message");
+            if(messageJson){
+                printf("%d\n",getpid());
+                printf("TERMINATE SIGNal\n");
+                MPI_Session_finalize(&session);
+                return 0;
+            }
+            
+
             if (!root) {
                 fprintf(stderr, "error: on line %d: %s\n", e.line, e.text);
             }else{
@@ -683,7 +698,6 @@ int main(int argc, char* argv[]){
             /* Request the GROW operation */
             op = MPI_PSETOP_ADD;
             
-            /* We add nprocs = 2 processes*/
             
             MPI_Info_create(&info);
             if(rm){
@@ -704,9 +718,9 @@ int main(int argc, char* argv[]){
             
             noutput = 0;
             /* Send the Set Operation request */
-            printf("before set op\n");
+            printf("before set op GRAPH MASTER\n");
             MPI_Session_dyn_v2a_psetop(session, &op, input_psets, 1, &output_psets, &noutput, info);
-            printf("noutput size %d\n", noutput);
+            printf("noutput size GRAPH MASTER %d %d\n", noutput, op);
             for(int i=0;i<noutput;i++){
                 printf("output :%s\n",output_psets[i]);
             }
@@ -797,17 +811,53 @@ int main(int argc, char* argv[]){
         ///MPI_Bcast(&number, 1, MPI_INT, 0, comm);       
         //prntf("Process %d got number %d \n", original_rank, number);
     }
-     printf("im done %d %d master: %d dynamic: %d\n", original_rank, dynamic_process, dyn_pset_state->is_master, dyn_pset_state->is_dynamic);
-    if(0 != dyn_pset_finalize(&dyn_pset_state, NULL)){
+    printf("im done %d %d master: %d dynamic: %d\n", original_rank, dynamic_process, dyn_pset_state->is_master, dyn_pset_state->is_dynamic);
+    input_psets = (char **)malloc(1 * sizeof(char *));
+    input_psets[0] = (char *)malloc(512);
+    if(0 != dyn_pset_finalize(&dyn_pset_state, input_psets[0])){
         printf("ERROR IN DYN_PSET_FINALIZE. TERMINATE!");
-        exit(-1);
+        exit(-1);   
     }
+
+    int noutput_psets;
+    if(dyn_pset_state->mpirank == 0){
+        //sleep(rand()%20+30);
+        printf("enter for sub\n");
+        char str2[200];
+        sprintf(str2, "output_space_generator_sub");
+
+
+        MPI_Info_create(&info);  
+        //MPI_Info_set(info, "input_pset_models_0", "NullPSetModel()");
+        MPI_Info_set(info, "model", "DefaultSubModel()");
+        MPI_Info_set(info, "output_space_generator", str2);
+
+                                                                                                                                                                                                     
+        op = MPI_PSETOP_SUB;  
+        printf("BEFORE input_psets[0]=%s\n", input_psets[0]);
+        noutput_psets = 0;                                                                                                  
+        MPI_Session_dyn_v2a_psetop(session, &op, input_psets, 1, &output_psets, &noutput_psets, info);                   
+        printf("AFTER\n");             
+        printf("noutput size %d\n", noutput_psets);
+        for(int i=0;i<noutput_psets;i++){
+            printf(" output :%s %s\n",output_psets[i], input_psets[0]);
+        }
+        MPI_Session_dyn_finalize_psetop(session, input_psets[0]);
+        //free_string_array(&output_psets, noutput_psets);
+    }
+    MPI_Session_pset_barrier(session, input_psets, 1, MPI_INFO_NULL);
+    if(0 == strcmp(ptype, "master")){
+        char state[50];
+        strcpy(state,"TERMINATED");
+        printf("%s task_id %s state",task_id,state);
+        set_task_state(task_id, state);
+    }
+    
     /* Disconnect from the old communicator */
     //MPI_Comm_disconnect(&comm);
     MPI_Session_finalize(&session);
     /* Finalize the MPI Session */
-  
-
+    printf("LAST END\n");
    
     return 0;
     
